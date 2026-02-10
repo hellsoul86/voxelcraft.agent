@@ -12,6 +12,7 @@ export class MineGatherScenario implements Scenario {
   private waitingTaskID: string | null = null;
 
   private targetPos: [number, number, number] | null = null;
+  private approachPos: [number, number, number] | null = null;
   private invTotalBefore = 0;
   private doneFlag = false;
 
@@ -74,26 +75,43 @@ export class MineGatherScenario implements Scenario {
 
     switch (this.phase) {
       case 0: {
-        this.targetPos = this.pickMineTarget(ctx);
+        const selfPos = obs?.self?.pos as [number, number, number] | undefined;
+        if (!selfPos) return null;
+
+        if (!this.targetPos || !this.approachPos) {
+          const plan = this.pickMinePlan(ctx);
+          this.targetPos = plan.target;
+          this.approachPos = plan.approach;
+          ctx.log(`[${this.name}] target=${this.targetPos.join(",")} approach=${this.approachPos.join(",")}`);
+        }
+
+        const man = Math.abs(selfPos[0] - this.targetPos[0]) + Math.abs(selfPos[1] - this.targetPos[1]) + Math.abs(selfPos[2] - this.targetPos[2]);
+        if (man <= 2) {
+          this.phase = 1;
+          return null;
+        }
+
+        const ref = "K_MOVE_0";
+        this.waitingRef = ref;
+        return { tasks: [{ id: ref, type: "MOVE_TO", target: this.approachPos, tolerance: 1.2 }] };
+      }
+      case 1: {
+        if (!this.targetPos) throw new Error(`[${this.name}] missing targetPos`);
         this.invTotalBefore = invTotal(obs?.inventory);
         const ref = "K_MINE_0";
         this.waitingRef = ref;
         return { tasks: [{ id: ref, type: "MINE", block_pos: this.targetPos }] };
       }
-      case 1: {
-        // Verify inventory increased and block is now AIR.
+      case 2: {
+        // Verify block is now AIR and gather the drop if present.
         if (!this.targetPos) throw new Error(`[${this.name}] missing targetPos`);
-        const after = invTotal(obs?.inventory);
-        if (after <= this.invTotalBefore) {
-          throw new Error(`[${this.name}] expected inventory to increase: before=${this.invTotalBefore} after=${after}`);
-        }
         const air = this.idByName.get("AIR");
         if (air === undefined) throw new Error(`[${this.name}] AIR missing from palette`);
         const b = ctx.voxels.getBlockAtWorld(this.targetPos);
         if (b === null) throw new Error(`[${this.name}] mined block out of view`);
         if (b !== air) throw new Error(`[${this.name}] expected mined block to be AIR, got=${b} (${this.palette[b] ?? "?"})`);
 
-        // Optional: if any ITEM entities are nearby, try GATHER one.
+        // If any ITEM entities are nearby, GATHER one (mining drops are expected to be item entities).
         const selfPos = obs?.self?.pos as [number, number, number] | undefined;
         const item = (obs?.entities ?? []).find((e: any) => {
           if (e?.type !== "ITEM") return false;
@@ -104,17 +122,29 @@ export class MineGatherScenario implements Scenario {
         if (item?.id) {
           const ref = "K_GATHER_0";
           this.waitingRef = ref;
-          this.phase = 2; // jump to gather verify
           return { tasks: [{ id: ref, type: "GATHER", target_id: item.id }] };
         }
 
+        // Fallback: if server auto-picks up drops (or mining drops go straight to inventory),
+        // allow completion as long as inventory didn't regress.
+        const after = invTotal(obs?.inventory);
+        if (after < this.invTotalBefore) {
+          throw new Error(`[${this.name}] inventory decreased after mine`);
+        }
+        if (after === this.invTotalBefore) {
+          throw new Error(`[${this.name}] expected either an ITEM drop to gather or inventory increase after mine`);
+        }
         this.doneFlag = true;
         return null;
       }
-      case 2: {
-        // Gather completed; just ensure inventory didn't decrease.
+      case 3: {
+        // Gather completed; inventory should increase.
         const after = invTotal(obs?.inventory);
-        if (after < this.invTotalBefore) throw new Error(`[${this.name}] inventory decreased after gather`);
+        if (after <= this.invTotalBefore) {
+          throw new Error(
+            `[${this.name}] expected inventory to increase after gather: before=${this.invTotalBefore} after=${after}`,
+          );
+        }
         this.doneFlag = true;
         return null;
       }
@@ -128,32 +158,53 @@ export class MineGatherScenario implements Scenario {
     return this.doneFlag;
   }
 
-  private pickMineTarget(ctx: ScenarioContext): [number, number, number] {
+  private pickMinePlan(ctx: ScenarioContext): { target: [number, number, number]; approach: [number, number, number] } {
     const center = ctx.voxels.getCenter();
     const air = this.idByName.get("AIR") ?? 0;
     const water = this.idByName.get("WATER");
     const preferred = new Set(["DIRT", "GRASS", "STONE", "SAND", "GRAVEL", "ICE", "LOG"]);
 
-    // Search within Manhattan<=2 (server constraint), prefer common breakable blocks, avoid water.
-    for (let dy = -1; dy >= -2; dy--) {
-      for (let dz = -2; dz <= 2; dz++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          const man = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
-          if (man > 2) continue;
-          const bid = ctx.voxels.getBlockAtOffset(dx, dy, dz);
+    const tryPick = (onlyPreferred: boolean) => {
+      let best: { dx: number; dz: number; man: number; targetId: number } | null = null;
+      for (let dz = -7; dz <= 7; dz++) {
+        for (let dx = -7; dx <= 7; dx++) {
+          const bid = ctx.voxels.getBlockAtOffset(dx, 0, dz);
           if (bid === null) continue;
           if (bid === air) continue;
           if (water !== undefined && bid === water) continue;
-          const name = this.palette[bid] ?? "";
-          if (!name) continue;
-          if (!preferred.has(name)) continue;
-          return [center[0] + dx, center[1] + dy, center[2] + dz];
+          if (onlyPreferred) {
+            const name = this.palette[bid] ?? "";
+            if (!preferred.has(name)) continue;
+          }
+          const man = Math.abs(dx) + Math.abs(dz);
+          if (!best || man < best.man) best = { dx, dz, man, targetId: bid };
         }
+      }
+      return best;
+    };
+
+    const pick = tryPick(true) ?? tryPick(false);
+    if (!pick) throw new Error(`[${this.name}] no mine target in obs cube on y=0 plane`);
+
+    const target: [number, number, number] = [center[0] + pick.dx, center[1], center[2] + pick.dz];
+
+    // Pick an adjacent AIR cell as the approach target.
+    const neigh: Array<[number, number]> = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+    for (const [nx, nz] of neigh) {
+      const bid = ctx.voxels.getBlockAtWorld([target[0] + nx, target[1], target[2] + nz]);
+      if (bid !== null && bid === air) {
+        const approach: [number, number, number] = [target[0] + nx, target[1], target[2] + nz];
+        return { target, approach };
       }
     }
 
-    // Fallback: mine the block directly below.
-    return [center[0], center[1] - 1, center[2]];
+    // If all neighbors are blocked in the cube, fall back to current center; MINE may fail but that's informative.
+    return { target, approach: center };
   }
 }
 

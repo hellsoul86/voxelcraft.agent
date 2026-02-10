@@ -60,7 +60,7 @@ export class WorkshopPadScenario implements Scenario {
 
     if (!this.basePos) {
       this.basePos = pos;
-      this.benchPos = [pos[0] + 1, pos[1], pos[2]];
+      this.benchPos = this.pickBenchPos(ctx, pos);
       this.anchor = this.pickAnchor(ctx, pos);
       ctx.log(`[${this.name}] basePos=${this.basePos.join(",")} benchPos=${this.benchPos.join(",")} anchor=${this.anchor.join(",")}`);
     }
@@ -185,32 +185,46 @@ export class WorkshopPadScenario implements Scenario {
     ctx.log(`[${this.name}] blueprint verified (${this.blueprint.blocks.length} blocks)`);
   }
 
+  private pickBenchPos(ctx: ScenarioContext, basePos: [number, number, number]): [number, number, number] {
+    const air = this.paletteByName.get("AIR");
+    if (air === undefined || !ctx.voxels.hasCube()) return [basePos[0] + 1, basePos[1], basePos[2]];
+
+    // Find an AIR cell near the agent so station checks pass.
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        if (dx === 0 && dz === 0) continue;
+        const p: [number, number, number] = [basePos[0] + dx, basePos[1], basePos[2] + dz];
+        const got = ctx.voxels.getBlockAtWorld(p);
+        if (got !== null && got === air) return p;
+      }
+    }
+    return [basePos[0] + 1, basePos[1], basePos[2]];
+  }
+
   private pickAnchor(ctx: ScenarioContext, basePos: [number, number, number]): [number, number, number] {
     const air = this.paletteByName.get("AIR");
-    if (air === undefined) return [basePos[0] + 4, basePos[1] + 2, basePos[2]];
-    if (!this.blueprint || !ctx.voxels.hasCube()) return [basePos[0] + 4, basePos[1] + 2, basePos[2]];
+    if (air === undefined) return [basePos[0] + 4, basePos[1], basePos[2]];
+    if (!this.blueprint || !ctx.voxels.hasCube()) return [basePos[0] + 4, basePos[1], basePos[2]];
 
     // Try a few candidate anchors within the obs cube to avoid terrain collisions.
-    for (const dy of [2, 3, 4]) {
-      for (let dz = -2; dz <= 2; dz++) {
-        for (let dx = 3; dx <= 6; dx++) {
-          const anchor: [number, number, number] = [basePos[0] + dx, basePos[1] + dy, basePos[2] + dz];
-          let ok = true;
-          for (const b of this.blueprint.blocks) {
-            const [ox, oy, oz] = b.pos;
-            const p: [number, number, number] = [anchor[0] + ox, anchor[1] + oy, anchor[2] + oz];
-            const got = ctx.voxels.getBlockAtWorld(p);
-            if (got === null || got !== air) {
-              ok = false;
-              break;
-            }
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dx = 3; dx <= 6; dx++) {
+        const anchor: [number, number, number] = [basePos[0] + dx, basePos[1], basePos[2] + dz];
+        let ok = true;
+        for (const b of this.blueprint.blocks) {
+          const [ox, oy, oz] = b.pos;
+          const p: [number, number, number] = [anchor[0] + ox, anchor[1] + oy, anchor[2] + oz];
+          const got = ctx.voxels.getBlockAtWorld(p);
+          if (got === null || got !== air) {
+            ok = false;
+            break;
           }
-          if (ok) return anchor;
         }
+        if (ok) return anchor;
       }
     }
 
     // Fallback: place above the agent.
-    return [basePos[0] + 4, basePos[1] + 4, basePos[2]];
+    return [basePos[0] + 4, basePos[1], basePos[2]];
   }
 }

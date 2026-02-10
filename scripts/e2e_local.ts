@@ -53,13 +53,21 @@ async function waitHTTP(url: string, timeoutMS: number): Promise<void> {
   throw new Error(`timeout waiting for ${url}`);
 }
 
-function spawnGo(cwd: string, args: string[], name: string): ChildProcessWithoutNullStreams {
-  const p = spawn("go", args, { cwd, stdio: "pipe" });
+function spawnProc(cmd: string, args: string[], cwd: string, name: string): ChildProcessWithoutNullStreams {
+  const p = spawn(cmd, args, { cwd, stdio: "pipe" });
   p.stdout.setEncoding("utf8");
   p.stderr.setEncoding("utf8");
   p.stdout.on("data", (d) => process.stdout.write(`[${name}] ${d}`));
   p.stderr.on("data", (d) => process.stderr.write(`[${name}] ${d}`));
   return p;
+}
+
+async function goBuild(cwd: string, pkg: string, outPath: string): Promise<string> {
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  const p = spawnProc("go", ["build", "-o", outPath, pkg], cwd, "build");
+  const code = await new Promise<number>((resolve) => p.once("exit", (c) => resolve(c ?? 1)));
+  if (code !== 0) throw new Error(`go build failed: pkg=${pkg} code=${code}`);
+  return outPath;
 }
 
 async function shutdown(p: ChildProcessWithoutNullStreams, name: string): Promise<void> {
@@ -88,14 +96,16 @@ async function main() {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "voxelcraft-e2e-"));
 
   const voxelcraftAI = path.resolve(process.cwd(), "..", "voxelcraft.ai");
+  const binDir = path.join(tmp, "bin");
 
   console.log(`[e2e] tmp=${tmp}`);
   console.log(`[e2e] server=http://127.0.0.1:${serverPort}`);
   console.log(`[e2e] mcp=http://127.0.0.1:${mcpPort}/mcp`);
 
-  const server = spawnGo(voxelcraftAI, [
-    "run",
-    "./cmd/server",
+  const serverBin = await goBuild(voxelcraftAI, "./cmd/server", path.join(binDir, "server"));
+  const mcpBin = await goBuild(voxelcraftAI, "./cmd/mcp", path.join(binDir, "mcp"));
+
+  const server = spawnProc(serverBin, [
     "-addr",
     `:${serverPort}`,
     "-world",
@@ -106,7 +116,7 @@ async function main() {
     tmp,
     "-load_latest_snapshot=false",
     "-disable_db=true",
-  ], "server");
+  ], voxelcraftAI, "server");
 
   try {
     await waitHTTP(`http://127.0.0.1:${serverPort}/healthz`, 30_000);
@@ -115,16 +125,14 @@ async function main() {
     throw e;
   }
 
-  const sidecar = spawnGo(voxelcraftAI, [
-    "run",
-    "./cmd/mcp",
+  const sidecar = spawnProc(mcpBin, [
     "-listen",
     `127.0.0.1:${mcpPort}`,
     "-world-ws-url",
     `ws://127.0.0.1:${serverPort}/v1/ws`,
     "-state-file",
     path.join(tmp, "mcp", "sessions.json"),
-  ], "mcp");
+  ], voxelcraftAI, "mcp");
 
   try {
     await waitHTTP(`http://127.0.0.1:${mcpPort}/healthz`, 30_000);
@@ -159,4 +167,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-
