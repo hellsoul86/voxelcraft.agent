@@ -1,0 +1,22 @@
+{
+  "name": "voxelcraft.agent",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "run": "tsx src/cli.ts run",
+    "swarm": "tsx src/cli.ts swarm",
+    "e2e": "tsx scripts/e2e_local.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
+
