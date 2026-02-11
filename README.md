@@ -31,24 +31,37 @@ pnpm run run -- --scenario workshop_pad --agent_id agent_002
 pnpm run run -- --scenario mine_gather --agent_id agent_003
 pnpm run run -- --scenario memory_kv --agent_id agent_004
 pnpm run run -- --scenario board_post_search --agent_id agent_005
+pnpm run run -- --scenario multiworld_mine_trade_govern --agent_id agent_006
 ```
 
 ## Swarm (load)
 
 ```bash
 pnpm run swarm -- --count 50 --duration_sec 60 --scenario smoke_roam
+pnpm run swarm -- --count 50 --duration_sec 60 --scenario multiworld_mine_trade_govern
+# optional threshold override (default is 0.95)
+pnpm run swarm -- --count 50 --duration_sec 60 --scenario multiworld_mine_trade_govern --min_success_ratio 0.95
 ```
+
+Swarm output will aggregate failure reasons by parsed `phase=...` and/or `code=...` when available.
+Common switch/governance related codes:
+- `E_WORLD_DENIED` (not at entry point / no route or permit)
+- `E_WORLD_BUSY` (expected world mismatch or world processing busy)
+- `E_WORLD_COOLDOWN` (switch cooldown)
 
 ## E2E (auto-spawn voxelcraft.ai server + MCP sidecar)
 
 ```bash
 pnpm run e2e -- --scenario workshop_pad
+pnpm run e2e -- --scenario multiworld_mine_trade_govern
+pnpm run e2e:multiworld
 ```
 
 ## E2E Swarm (auto-spawn + load)
 
 ```bash
 pnpm run e2e:swarm -- --count 50 --duration_sec 60 --scenario smoke_roam
+pnpm run e2e:swarm -- --count 50 --duration_sec 60 --scenario multiworld_mine_trade_govern
 ```
 
 ## E2E Duo (auto-spawn + 2 agents, social systems)

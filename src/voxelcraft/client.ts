@@ -12,6 +12,11 @@ export interface ActArgs {
   instants?: unknown[];
   tasks?: unknown[];
   cancel?: string[];
+  expected_world_id?: string;
+  act_id?: string;
+  based_on_obs_id?: string;
+  idempotency_key?: string;
+  wait_ack_ms?: number;
 }
 
 export class VoxelCraftMcpClient {
@@ -38,9 +43,19 @@ export class VoxelCraftMcpClient {
     return this.callTool("voxelcraft.get_status", {});
   }
 
+  async listWorlds(): Promise<{ worlds: Array<{ world_id: string }> }> {
+    const res = await this.callTool("voxelcraft.list_worlds", {});
+    return res as { worlds: Array<{ world_id: string }> };
+  }
+
   async getObs(args: GetObsArgs): Promise<{ tick: number; agent_id: string; obs: any }> {
     const res = await this.callTool("voxelcraft.get_obs", args ?? {});
     return res as { tick: number; agent_id: string; obs: any };
+  }
+
+  async getEvents(args: { since_cursor?: number; limit?: number }): Promise<{ events: Array<{ cursor: number; event: any }>; next_cursor: number }> {
+    const res = await this.callTool("voxelcraft.get_events", args ?? {});
+    return res as { events: Array<{ cursor: number; event: any }>; next_cursor: number };
   }
 
   async getCatalog(name: string): Promise<{ name: string; digest: string; data: any }> {
@@ -48,9 +63,9 @@ export class VoxelCraftMcpClient {
     return res as { name: string; digest: string; data: any };
   }
 
-  async act(args: ActArgs): Promise<{ sent: boolean; tick_used: number; agent_id: string }> {
+  async act(args: ActArgs): Promise<{ sent: boolean; tick_used: number; agent_id: string; act_id?: string; ack?: any }> {
     const res = await this.callTool("voxelcraft.act", args ?? {});
-    return res as { sent: boolean; tick_used: number; agent_id: string };
+    return res as { sent: boolean; tick_used: number; agent_id: string; act_id?: string; ack?: any };
   }
 
   async disconnect(): Promise<{ ok: boolean }> {
@@ -62,4 +77,3 @@ export class VoxelCraftMcpClient {
     return this.rpc.call("call_tool", { name, arguments: args });
   }
 }
-

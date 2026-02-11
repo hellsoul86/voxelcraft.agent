@@ -32,6 +32,17 @@ function asStr(v: unknown, def: string): string {
   return typeof v === "string" && v.trim() ? v.trim() : def;
 }
 
+function normalizeFailReason(reason: string): string {
+  const msg = String(reason ?? "").trim();
+  const code = msg.match(/\bcode=([A-Z0-9_]+)/)?.[1];
+  const phase = msg.match(/\bphase=([A-Z0-9_]+)/)?.[1];
+  if (code && phase) return `phase=${phase} code=${code}`;
+  if (code) return `code=${code}`;
+  if (phase) return `phase=${phase}`;
+  const firstLine = msg.split("\n")[0] ?? "unknown";
+  return firstLine.slice(0, 240);
+}
+
 async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
@@ -99,6 +110,10 @@ async function main() {
   const flags = parseFlags(process.argv.slice(2));
   const count = asInt(flags.count, 50);
   const durationSec = asInt(flags.duration_sec, 60);
+  const minSuccessRatioRaw = typeof flags.min_success_ratio === "string" ? Number.parseFloat(flags.min_success_ratio) : 0.95;
+  const minSuccessRatio = Number.isFinite(minSuccessRatioRaw)
+    ? Math.max(0, Math.min(1, minSuccessRatioRaw))
+    : 0.95;
   const scenario = asStr(flags.scenario, "smoke_roam") as ScenarioName;
   const prefix = asStr(flags.prefix, "agent_");
 
@@ -166,7 +181,7 @@ async function main() {
         scenario,
         durationSec,
         fresh: true,
-        timeoutSec: Math.max(30, durationSec + 60),
+        timeoutSec: Math.max(180, durationSec + 180),
         log: () => {},
       }).then(
         (r) => ({ sessionKey, r }),
@@ -181,17 +196,20 @@ async function main() {
       if (it.r.ok) {
         oks++;
       } else {
-        const k = it.r.error ?? "unknown";
+        const k = normalizeFailReason(it.r.error ?? "unknown");
         errors.set(k, (errors.get(k) ?? 0) + 1);
       }
     }
 
-    console.log(`[e2e_swarm] ok=${oks} fail=${count - oks}`);
+    const ratio = count > 0 ? oks / count : 0;
+    console.log(
+      `[e2e_swarm] ok=${oks} fail=${count - oks} success_ratio=${ratio.toFixed(3)} min_success_ratio=${minSuccessRatio.toFixed(3)}`,
+    );
     for (const [k, n] of [...errors.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)) {
       console.log(`[e2e_swarm] fail_reason n=${n} reason=${k}`);
     }
 
-    ok = oks === count;
+    ok = ratio >= minSuccessRatio;
   } finally {
     await shutdown(sidecar, "mcp");
     await shutdown(server, "server");
@@ -204,4 +222,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-

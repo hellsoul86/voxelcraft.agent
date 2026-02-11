@@ -7,8 +7,15 @@ import { WorkshopPadScenario } from "./scenarios/workshop_pad.js";
 import { MineGatherScenario } from "./scenarios/mine_gather.js";
 import { MemoryKVScenario } from "./scenarios/memory_kv.js";
 import { BoardPostSearchScenario } from "./scenarios/board_post_search.js";
+import { MultiworldMineTradeGovernScenario } from "./scenarios/multiworld_mine_trade_govern.js";
 
-export type ScenarioName = "smoke_roam" | "workshop_pad" | "mine_gather" | "memory_kv" | "board_post_search";
+export type ScenarioName =
+  | "smoke_roam"
+  | "workshop_pad"
+  | "mine_gather"
+  | "memory_kv"
+  | "board_post_search"
+  | "multiworld_mine_trade_govern";
 
 export interface RunScenarioOpts {
   mcpUrl: string;
@@ -137,6 +144,8 @@ function createScenario(name: ScenarioName, opts: RunScenarioOpts, log: (m: stri
       return new MemoryKVScenario();
     case "board_post_search":
       return new BoardPostSearchScenario();
+    case "multiworld_mine_trade_govern":
+      return new MultiworldMineTradeGovernScenario();
     default:
       log(`[${opts.sessionKey}] unknown scenario: ${name}`);
       throw new Error(`unknown scenario: ${name}`);

@@ -14,6 +14,7 @@ export class MineGatherScenario implements Scenario {
   private targetPos: [number, number, number] | null = null;
   private approachPos: [number, number, number] | null = null;
   private invTotalBefore = 0;
+  private retries = 0;
   private doneFlag = false;
 
   obsMode() {
@@ -37,6 +38,10 @@ export class MineGatherScenario implements Scenario {
       const ok = getBool(ar, "ok");
       if (!ok) {
         const code = getString(ar, "code") ?? "E_UNKNOWN";
+        if (this.retryableMineFailure(code) && this.phase <= 2) {
+          this.resetForRetry();
+          return null;
+        }
         throw new Error(`[${this.name}] action rejected ref=${this.waitingRef} code=${code}`);
       }
       const tid = getString(ar, "task_id");
@@ -47,6 +52,10 @@ export class MineGatherScenario implements Scenario {
       const fail = findTaskFail(obs.events, tid);
       if (fail) {
         const code = getString(fail, "code") ?? "E_UNKNOWN";
+        if (this.retryableMineFailure(code) && this.phase <= 2) {
+          this.resetForRetry();
+          return null;
+        }
         throw new Error(`[${this.name}] TASK_FAIL task_id=${tid} code=${code}`);
       }
       const done = findTaskDone(obs.events, tid);
@@ -64,6 +73,10 @@ export class MineGatherScenario implements Scenario {
       const fail = findTaskFail(obs.events, this.waitingTaskID);
       if (fail) {
         const code = getString(fail, "code") ?? "E_UNKNOWN";
+        if (this.retryableMineFailure(code) && this.phase <= 2) {
+          this.resetForRetry();
+          return null;
+        }
         throw new Error(`[${this.name}] TASK_FAIL task_id=${this.waitingTaskID} code=${code}`);
       }
       const done = findTaskDone(obs.events, this.waitingTaskID);
@@ -156,6 +169,20 @@ export class MineGatherScenario implements Scenario {
 
   done(): boolean {
     return this.doneFlag;
+  }
+
+  private retryableMineFailure(code: string): boolean {
+    if (this.retries >= 4) return false;
+    return code === "E_INVALID_TARGET" || code === "E_BLOCKED";
+  }
+
+  private resetForRetry(): void {
+    this.retries++;
+    this.waitingRef = null;
+    this.waitingTaskID = null;
+    this.targetPos = null;
+    this.approachPos = null;
+    this.phase = 0;
   }
 
   private pickMinePlan(ctx: ScenarioContext): { target: [number, number, number]; approach: [number, number, number] } {
