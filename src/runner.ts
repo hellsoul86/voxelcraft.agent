@@ -6,8 +6,9 @@ import { SmokeRoamScenario } from "./scenarios/smoke_roam.js";
 import { WorkshopPadScenario } from "./scenarios/workshop_pad.js";
 import { MineGatherScenario } from "./scenarios/mine_gather.js";
 import { MemoryKVScenario } from "./scenarios/memory_kv.js";
+import { BoardPostSearchScenario } from "./scenarios/board_post_search.js";
 
-export type ScenarioName = "smoke_roam" | "workshop_pad" | "mine_gather" | "memory_kv";
+export type ScenarioName = "smoke_roam" | "workshop_pad" | "mine_gather" | "memory_kv" | "board_post_search";
 
 export interface RunScenarioOpts {
   mcpUrl: string;
@@ -134,9 +135,10 @@ function createScenario(name: ScenarioName, opts: RunScenarioOpts, log: (m: stri
       return new MineGatherScenario();
     case "memory_kv":
       return new MemoryKVScenario();
+    case "board_post_search":
+      return new BoardPostSearchScenario();
     default:
       log(`[${opts.sessionKey}] unknown scenario: ${name}`);
       throw new Error(`unknown scenario: ${name}`);
   }
 }
-

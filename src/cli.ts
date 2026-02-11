@@ -6,7 +6,7 @@ function usage(): never {
   pnpm run swarm -- --count <n> --duration_sec <n> [--scenario smoke_roam] [--mcp <url>] [--prefix <pfx>]
   pnpm run e2e -- --scenario <name>
 
-Scenarios: smoke_roam | workshop_pad | mine_gather | memory_kv
+Scenarios: smoke_roam | workshop_pad | mine_gather | memory_kv | board_post_search
 `);
   process.exit(2);
 }
@@ -126,4 +126,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-

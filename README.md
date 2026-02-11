@@ -30,6 +30,7 @@ pnpm run run -- --scenario smoke_roam --agent_id agent_001
 pnpm run run -- --scenario workshop_pad --agent_id agent_002
 pnpm run run -- --scenario mine_gather --agent_id agent_003
 pnpm run run -- --scenario memory_kv --agent_id agent_004
+pnpm run run -- --scenario board_post_search --agent_id agent_005
 ```
 
 ## Swarm (load)
@@ -44,3 +45,8 @@ pnpm run swarm -- --count 50 --duration_sec 60 --scenario smoke_roam
 pnpm run e2e -- --scenario workshop_pad
 ```
 
+## E2E Swarm (auto-spawn + load)
+
+```bash
+pnpm run e2e:swarm -- --count 50 --duration_sec 60 --scenario smoke_roam
+```
