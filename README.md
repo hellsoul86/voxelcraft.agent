@@ -50,3 +50,14 @@ pnpm run e2e -- --scenario workshop_pad
 ```bash
 pnpm run e2e:swarm -- --count 50 --duration_sec 60 --scenario smoke_roam
 ```
+
+## E2E Duo (auto-spawn + 2 agents, social systems)
+
+This spawns a fresh `voxelcraft.ai` world with an e2e tuning that grants extra starter items
+to make social systems testable (claims/contracts/laws) without relying on RNG.
+
+```bash
+pnpm run e2e:duo -- --scenario trade_p2p
+pnpm run e2e:duo -- --scenario contract_gather
+pnpm run e2e:duo -- --scenario claim_law_tax
+```

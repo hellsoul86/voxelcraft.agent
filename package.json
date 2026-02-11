@@ -11,6 +11,7 @@
     "swarm": "tsx src/cli.ts swarm",
     "e2e": "tsx scripts/e2e_local.ts",
     "e2e:swarm": "tsx scripts/e2e_swarm_local.ts",
+    "e2e:duo": "tsx scripts/e2e_duo_local.ts",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
