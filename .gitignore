@@ -3,12 +3,15 @@ node_modules/
 
 dist/
 coverage/
+*.lcov
 
 .DS_Store
 
 data/
 tmp/
+logs
+*.log
+*.tsbuildinfo
 
 .env
 .env.*
-
