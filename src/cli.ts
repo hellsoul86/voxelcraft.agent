@@ -2,8 +2,8 @@ import { runScenario, type ScenarioName } from "./runner.js";
 
 function usage(): never {
   console.error(`Usage:
-  pnpm run run -- --scenario <name> [--mcp <url>] [--agent_id <id>] [--duration_sec <n>] [--no_fresh]
-  pnpm run swarm -- --count <n> --duration_sec <n> [--scenario smoke_roam] [--mcp <url>] [--prefix <pfx>]
+  pnpm run run -- --scenario <name> [--mcp <url>] [--agent_id <id>] [--duration_sec <n>] [--obs_timeout_ms <n>] [--no_fresh]
+  pnpm run swarm -- --count <n> --duration_sec <n> [--scenario smoke_roam] [--mcp <url>] [--prefix <pfx>] [--start_stagger_ms <n>] [--obs_timeout_ms <n>]
   pnpm run e2e -- --scenario <name>
 
 Scenarios: smoke_roam | workshop_pad | mine_gather | memory_kv | board_post_search | multiworld_mine_trade_govern
@@ -59,6 +59,10 @@ function normalizeFailReason(reason: string): string {
   return firstLine.slice(0, 240);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
 async function main() {
   const { cmd, flags } = parseArgs(process.argv.slice(2));
   if (!cmd) usage();
@@ -72,6 +76,8 @@ async function main() {
     const sessionKey = asStr(flags.agent_id, "agent_001");
     const durationSec = asInt(flags.duration_sec, 30);
     const fresh = asBool(flags.fresh, true);
+    const obsTimeoutMS = asInt(flags.obs_timeout_ms, 3500);
+    const warmupTimeoutMS = asInt(flags.warmup_timeout_ms, Math.max(4500, obsTimeoutMS + 1000));
 
     const res = await runScenario({
       mcpUrl,
@@ -79,6 +85,8 @@ async function main() {
       scenario,
       durationSec,
       fresh,
+      obsTimeoutMS,
+      warmupTimeoutMS,
     });
     if (!res.ok) {
       console.error(`[run] failed: agent=${res.agentId ?? "?"} tick=${res.tick ?? 0} err=${res.error ?? "unknown"}`);
@@ -94,21 +102,35 @@ async function main() {
     const minSuccessRatio = Math.max(0, Math.min(1, Number(flags.min_success_ratio ?? 0.95)));
     const scenario = asStr(flags.scenario, "smoke_roam") as ScenarioName;
     const prefix = asStr(flags.prefix, "agent_");
+    const startStaggerMS = asInt(flags.start_stagger_ms, 500);
+    const obsTimeoutMS = asInt(flags.obs_timeout_ms, 3500);
+    const warmupTimeoutMS = asInt(flags.warmup_timeout_ms, Math.max(4500, obsTimeoutMS + 1000));
+    const maxObsTimeouts = asInt(flags.max_obs_timeouts, 12);
 
     const tasks = Array.from({ length: count }, (_, i) => {
       const id = `${prefix}${String(i + 1).padStart(3, "0")}`;
-      return runScenario({
-        mcpUrl,
-        sessionKey: id,
-        scenario,
-        durationSec,
-        fresh: true,
-        timeoutSec: Math.max(180, durationSec + 180),
-        log: () => {},
-      }).then(
-        (r) => ({ id, r }),
-        (e) => ({ id, r: { ok: false, error: (e as Error).message } as any }),
-      );
+      return (async () => {
+        if (startStaggerMS > 0) {
+          await sleep(startStaggerMS * i);
+        }
+        try {
+          const r = await runScenario({
+            mcpUrl,
+            sessionKey: id,
+            scenario,
+            durationSec,
+            fresh: true,
+            timeoutSec: Math.max(220, durationSec + 220),
+            obsTimeoutMS,
+            warmupTimeoutMS,
+            maxObsTimeouts,
+            log: () => {},
+          });
+          return { id, r };
+        } catch (e) {
+          return { id, r: { ok: false, error: (e as Error).message } as any };
+        }
+      })();
     });
 
     const results = await Promise.all(tasks);

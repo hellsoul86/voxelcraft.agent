@@ -25,6 +25,9 @@ export interface RunScenarioOpts {
   hmacSecret?: string;
   fresh?: boolean;
   timeoutSec?: number;
+  obsTimeoutMS?: number;
+  warmupTimeoutMS?: number;
+  maxObsTimeouts?: number;
   log?: (msg: string) => void;
 }
 
@@ -82,13 +85,19 @@ export async function runScenario(opts: RunScenarioOpts): Promise<RunResult> {
     log: (m: string) => log(`[${opts.sessionKey}] ${m}`),
   };
 
+  const warmupTimeoutMS = Math.max(2000, opts.warmupTimeoutMS ?? 4500);
+  await warmupSession(client, warmupTimeoutMS, (m) => log(`[${opts.sessionKey}] ${m}`));
+
   const scenario = createScenario(opts.scenario, opts, log);
   await scenario.init(ctx);
 
   const start = Date.now();
   const timeoutMS = (opts.timeoutSec ?? 120) * 1000;
+  const obsTimeoutMS = Math.max(1500, opts.obsTimeoutMS ?? 3500);
+  const maxObsTimeouts = Math.max(1, opts.maxObsTimeouts ?? 10);
 
   let lastTick = 0;
+  let obsTimeoutStreak = 0;
   while (true) {
     if (scenario.done()) {
       return { ok: true, agentId: ctx.agentId, tick: lastTick };
@@ -98,7 +107,30 @@ export async function runScenario(opts: RunScenarioOpts): Promise<RunResult> {
     }
 
     const mode = scenario.obsMode();
-    const res = await client.getObs({ mode, wait_new_tick: true, timeout_ms: 2000 });
+    let res: { tick: number; agent_id: string; obs: any } | null = null;
+    try {
+      res = await client.getObs({ mode, wait_new_tick: true, timeout_ms: obsTimeoutMS });
+      obsTimeoutStreak = 0;
+    } catch (err) {
+      const msg = String((err as Error)?.message ?? err);
+      if (isTransientObsError(msg)) {
+        obsTimeoutStreak++;
+        if (obsTimeoutStreak >= maxObsTimeouts) {
+          return { ok: false, agentId: ctx.agentId, tick: lastTick, error: `obs timeout streak exceeded (${obsTimeoutStreak}): ${msg}` };
+        }
+        if (obsTimeoutStreak % 3 === 0) {
+          log(`[${opts.sessionKey}] transient obs errors=${obsTimeoutStreak}; refreshing sidecar session`);
+          try {
+            await client.disconnect();
+          } catch {
+            // ignore
+          }
+        }
+        await sleep(Math.min(800, 100 * obsTimeoutStreak));
+        continue;
+      }
+      return { ok: false, agentId: ctx.agentId, tick: lastTick, error: msg };
+    }
     if (!res?.tick || !res?.obs) continue;
 
     lastTick = res.tick;
@@ -130,6 +162,45 @@ export async function runScenario(opts: RunScenarioOpts): Promise<RunResult> {
       await client.act(act);
     }
   }
+}
+
+async function warmupSession(client: VoxelCraftMcpClient, timeoutMS: number, log: (m: string) => void): Promise<void> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    try {
+      const res = await client.getObs({ mode: "summary", wait_new_tick: true, timeout_ms: timeoutMS });
+      if (res?.tick && res?.obs) {
+        return;
+      }
+    } catch (err) {
+      lastErr = err;
+      const msg = String((err as Error)?.message ?? err);
+      if (!isTransientObsError(msg) && !msg.toLowerCase().includes("catalog not available")) {
+        throw err;
+      }
+      log(`warmup attempt=${attempt} transient error: ${msg}`);
+    }
+    await sleep(120 * attempt);
+  }
+  if (lastErr instanceof Error) throw lastErr;
+  throw new Error("warmup failed: no obs")
+}
+
+function isTransientObsError(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes("timeout waiting for obs") ||
+    m.includes("catalog not available") ||
+    m.includes("http 503") ||
+    m.includes("fetch failed") ||
+    m.includes("connection reset") ||
+    m.includes("econnreset") ||
+    m.includes("timeout")
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
 
 function createScenario(name: ScenarioName, opts: RunScenarioOpts, log: (m: string) => void): Scenario {

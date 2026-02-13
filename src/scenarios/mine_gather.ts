@@ -172,7 +172,7 @@ export class MineGatherScenario implements Scenario {
   }
 
   private retryableMineFailure(code: string): boolean {
-    if (this.retries >= 4) return false;
+    if (this.retries >= 12) return false;
     return code === "E_INVALID_TARGET" || code === "E_BLOCKED";
   }
 
