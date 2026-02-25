@@ -1,0 +1,194 @@
+name: project-automation
+
+on:
+  issues:
+    types: [opened, reopened, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  sync_issue_to_program_project:
+    if: ${{ secrets.GH_PROJECT_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add issue to project and update fields
+        uses: actions/github-script@v7
+        env:
+          PROJECT_OWNER: hellsoul86
+          PROJECT_NUMBER: "4"
+        with:
+          github-token: ${{ secrets.GH_PROJECT_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            if (!issue) {
+              core.info('No issue payload, skip.');
+              return;
+            }
+
+            const labels = (issue.labels || []).map(l => l.name);
+            const title = issue.title || '';
+            const isProgramIssue = labels.includes('program:voxelcraft') || /^\[VC-(PROG|BUG)\]/.test(title);
+            if (!isProgramIssue) {
+              core.info('Issue is not a program issue, skip.');
+              return;
+            }
+
+            const owner = process.env.PROJECT_OWNER;
+            const number = Number(process.env.PROJECT_NUMBER);
+            const repoName = context.repo.repo;
+            const repoOptionMap = {
+              'voxelcraft.agent': 'agent',
+              'voxelcraft.ai': 'ai',
+              'voxelcraft.web': 'web',
+            };
+
+            const projectQuery = `
+              query($owner: String!, $number: Int!) {
+                user(login: $owner) {
+                  projectV2(number: $number) {
+                    id
+                    fields(first: 50) {
+                      nodes {
+                        ... on ProjectV2FieldCommon {
+                          id
+                          name
+                        }
+                        ... on ProjectV2SingleSelectField {
+                          id
+                          name
+                          options {
+                            id
+                            name
+                          }
+                        }
+                      }
+                    }
+                    items(first: 100) {
+                      nodes {
+                        id
+                        content {
+                          ... on Issue {
+                            id
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            const projectData = await github.graphql(projectQuery, { owner, number });
+            const project = projectData.user?.projectV2;
+            if (!project?.id) {
+              core.setFailed('Project not found');
+              return;
+            }
+
+            const fields = project.fields?.nodes || [];
+            const items = project.items?.nodes || [];
+
+            const fieldByName = new Map(fields.filter(Boolean).map(f => [f.name, f]));
+
+            let itemId = items.find(it => it?.content?.id === issue.node_id)?.id;
+
+            if (!itemId) {
+              try {
+                const added = await github.graphql(`
+                  mutation($projectId: ID!, $contentId: ID!) {
+                    addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+                      item { id }
+                    }
+                  }
+                `, {
+                  projectId: project.id,
+                  contentId: issue.node_id,
+                });
+                itemId = added.addProjectV2ItemById?.item?.id;
+              } catch (e) {
+                core.info(`addProjectV2ItemById warning: ${e.message}`);
+              }
+            }
+
+            if (!itemId) {
+              core.setFailed('Unable to resolve project item id for issue');
+              return;
+            }
+
+            const statusLabel = labels.find(l => l.startsWith('status:')) || '';
+            const gateLabel = labels.find(l => l.startsWith('gate:')) || '';
+            const roleLabel = labels.find(l => l.startsWith('role:')) || 'role:pm';
+
+            const statusMap = {
+              'status:planning': 'Todo',
+              'status:arch-ready': 'In Progress',
+              'status:dev-in-progress': 'In Progress',
+              'status:qa-in-progress': 'In Progress',
+              'status:release-ready': 'In Progress',
+              'status:blocked': 'In Progress',
+              'status:done': 'Done',
+            };
+
+            const gateValue = gateLabel.replace('gate:', '') || 'no-go';
+            const trackValue = roleLabel.replace('role:', '') || 'pm';
+            const repoValue = repoOptionMap[repoName] || 'multi';
+            const statusValue = statusMap[statusLabel] || 'Todo';
+
+            async function setSingle(fieldName, optionName) {
+              const field = fieldByName.get(fieldName);
+              if (!field?.options) return;
+              const opt = field.options.find(o => o.name === optionName);
+              if (!opt?.id) return;
+              await github.graphql(`
+                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    fieldId: $fieldId,
+                    value: { singleSelectOptionId: $optionId }
+                  }) {
+                    projectV2Item { id }
+                  }
+                }
+              `, {
+                projectId: project.id,
+                itemId,
+                fieldId: field.id,
+                optionId: opt.id,
+              });
+            }
+
+            async function setText(fieldName, text) {
+              const field = fieldByName.get(fieldName);
+              if (!field?.id) return;
+              await github.graphql(`
+                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $text: String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    fieldId: $fieldId,
+                    value: { text: $text }
+                  }) {
+                    projectV2Item { id }
+                  }
+                }
+              `, {
+                projectId: project.id,
+                itemId,
+                fieldId: field.id,
+                text,
+              });
+            }
+
+            await setSingle('Status', statusValue);
+            await setSingle('ProgramRepo', repoValue);
+            await setSingle('ProgramTrack', trackValue);
+            await setSingle('GateDecision', gateValue);
+
+            if (labels.includes('status:blocked')) {
+              await setText('BlockerReason', 'See issue body/comments for blocker details');
+            }
+
+            core.info('Project sync completed.');
