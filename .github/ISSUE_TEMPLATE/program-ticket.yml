@@ -1,0 +1,80 @@
+name: Program Ticket
+description: Work item for VoxelCraft cross-repo delivery planning.
+title: "[VC-PROG] <ticket-id> - "
+labels:
+  - program:voxelcraft
+  - type:feature
+body:
+  - type: input
+    id: ticket_id
+    attributes:
+      label: Ticket ID
+      description: Example: vc-phase6-001
+      placeholder: vc-phase6-001
+    validations:
+      required: true
+
+  - type: dropdown
+    id: repo_scope
+    attributes:
+      label: Repo Scope
+      options:
+        - voxelcraft.agent
+        - voxelcraft.ai
+        - voxelcraft.web
+        - multi-repo
+    validations:
+      required: true
+
+  - type: dropdown
+    id: track
+    attributes:
+      label: Primary Track
+      options:
+        - pm
+        - architect
+        - frontend
+        - backend
+        - qa
+        - devops
+    validations:
+      required: true
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: One clear business or engineering outcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: One item per line.
+      placeholder: |
+        - Criteria 1
+        - Criteria 2
+        - Criteria 3
+    validations:
+      required: true
+
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Planned Artifacts
+      description: Expected docs or reports.
+      placeholder: |
+        - docs/prd/<ticket>.md
+        - docs/adr/<ticket>.md
+        - docs/api/<ticket>.md
+        - reports/qa/<ticket>.md
+        - reports/release/<ticket>.md
+
+  - type: textarea
+    id: blockers
+    attributes:
+      label: Known Blockers
+      description: Use `none` if no blocker is known.
+      placeholder: none
