@@ -24,6 +24,7 @@ export interface RunScenarioOpts {
   durationSec?: number; // used by smoke_roam and swarm
   hmacSecret?: string;
   fresh?: boolean;
+  cleanupOnDone?: boolean;
   timeoutSec?: number;
   obsTimeoutMS?: number;
   warmupTimeoutMS?: number;
@@ -40,11 +41,15 @@ export interface RunResult {
 
 export async function runScenario(opts: RunScenarioOpts): Promise<RunResult> {
   const log = opts.log ?? ((m) => console.log(m));
+  const obsTimeoutMS = Math.max(1500, opts.obsTimeoutMS ?? 3500);
+  const warmupTimeoutMS = Math.max(2000, opts.warmupTimeoutMS ?? 4500);
+  const rpcTimeoutMS = Math.max(12_000, obsTimeoutMS + 6_000, warmupTimeoutMS + 4_000);
 
   const client = new VoxelCraftMcpClient({
     mcpUrl: opts.mcpUrl,
     agentId: opts.sessionKey,
     hmacSecret: opts.hmacSecret,
+    timeoutMS: rpcTimeoutMS,
   });
 
   // Basic MCP sanity.
@@ -85,7 +90,6 @@ export async function runScenario(opts: RunScenarioOpts): Promise<RunResult> {
     log: (m: string) => log(`[${opts.sessionKey}] ${m}`),
   };
 
-  const warmupTimeoutMS = Math.max(2000, opts.warmupTimeoutMS ?? 4500);
   await warmupSession(client, warmupTimeoutMS, (m) => log(`[${opts.sessionKey}] ${m}`));
 
   const scenario = createScenario(opts.scenario, opts, log);
@@ -93,73 +97,82 @@ export async function runScenario(opts: RunScenarioOpts): Promise<RunResult> {
 
   const start = Date.now();
   const timeoutMS = (opts.timeoutSec ?? 120) * 1000;
-  const obsTimeoutMS = Math.max(1500, opts.obsTimeoutMS ?? 3500);
   const maxObsTimeouts = Math.max(1, opts.maxObsTimeouts ?? 10);
 
   let lastTick = 0;
   let obsTimeoutStreak = 0;
-  while (true) {
-    if (scenario.done()) {
-      return { ok: true, agentId: ctx.agentId, tick: lastTick };
-    }
-    if (Date.now() - start > timeoutMS) {
-      return { ok: false, agentId: ctx.agentId, tick: lastTick, error: "timeout" };
-    }
-
-    const mode = scenario.obsMode();
-    let res: { tick: number; agent_id: string; obs: any } | null = null;
-    try {
-      res = await client.getObs({ mode, wait_new_tick: true, timeout_ms: obsTimeoutMS });
-      obsTimeoutStreak = 0;
-    } catch (err) {
-      const msg = String((err as Error)?.message ?? err);
-      if (isTransientObsError(msg)) {
-        obsTimeoutStreak++;
-        if (obsTimeoutStreak >= maxObsTimeouts) {
-          return { ok: false, agentId: ctx.agentId, tick: lastTick, error: `obs timeout streak exceeded (${obsTimeoutStreak}): ${msg}` };
-        }
-        if (obsTimeoutStreak % 3 === 0) {
-          log(`[${opts.sessionKey}] transient obs errors=${obsTimeoutStreak}; refreshing sidecar session`);
-          try {
-            await client.disconnect();
-          } catch {
-            // ignore
-          }
-        }
-        await sleep(Math.min(800, 100 * obsTimeoutStreak));
-        continue;
+  try {
+    while (true) {
+      if (scenario.done()) {
+        return { ok: true, agentId: ctx.agentId, tick: lastTick };
       }
-      return { ok: false, agentId: ctx.agentId, tick: lastTick, error: msg };
-    }
-    if (!res?.tick || !res?.obs) continue;
+      if (Date.now() - start > timeoutMS) {
+        return { ok: false, agentId: ctx.agentId, tick: lastTick, error: "timeout" };
+      }
 
-    lastTick = res.tick;
-    ctx.agentId = res.agent_id;
-    const obs = res.obs;
-
-    if (mode === "full" && obs?.voxels?.encoding) {
+      const mode = scenario.obsMode();
+      let res: { tick: number; agent_id: string; obs: any } | null = null;
       try {
-        voxels.update(obs.voxels);
-      } catch (e) {
-        // If we started mid-session and only saw DELTA, force a reconnect to get RLE baseline.
-        const msg = (e as Error).message || String(e);
-        if (msg.includes("DELTA without baseline")) {
-          log(`[${opts.sessionKey}] voxel baseline missing; reconnecting sidecar session`);
-          voxels.reset();
-          try {
-            await client.disconnect();
-          } catch {
-            // ignore
+        res = await client.getObs({ mode, wait_new_tick: true, timeout_ms: obsTimeoutMS });
+        obsTimeoutStreak = 0;
+      } catch (err) {
+        const msg = String((err as Error)?.message ?? err);
+        if (isTransientObsError(msg)) {
+          obsTimeoutStreak++;
+          if (obsTimeoutStreak >= maxObsTimeouts) {
+            return { ok: false, agentId: ctx.agentId, tick: lastTick, error: `obs timeout streak exceeded (${obsTimeoutStreak}): ${msg}` };
           }
+          if (obsTimeoutStreak % 3 === 0) {
+            log(`[${opts.sessionKey}] transient obs errors=${obsTimeoutStreak}; refreshing sidecar session`);
+            try {
+              await client.disconnect();
+            } catch {
+              // ignore
+            }
+          }
+          await sleep(Math.min(800, 100 * obsTimeoutStreak));
           continue;
         }
-        throw e;
+        return { ok: false, agentId: ctx.agentId, tick: lastTick, error: msg };
+      }
+      if (!res?.tick || !res?.obs) continue;
+
+      lastTick = res.tick;
+      ctx.agentId = res.agent_id;
+      const obs = res.obs;
+
+      if (mode === "full" && obs?.voxels?.encoding) {
+        try {
+          voxels.update(obs.voxels);
+        } catch (e) {
+          // If we started mid-session and only saw DELTA, force a reconnect to get RLE baseline.
+          const msg = (e as Error).message || String(e);
+          if (msg.includes("DELTA without baseline")) {
+            log(`[${opts.sessionKey}] voxel baseline missing; reconnecting sidecar session`);
+            voxels.reset();
+            try {
+              await client.disconnect();
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+          throw e;
+        }
+      }
+
+      const act = await scenario.step(obs, ctx);
+      if (act) {
+        await client.act(act);
       }
     }
-
-    const act = await scenario.step(obs, ctx);
-    if (act) {
-      await client.act(act);
+  } finally {
+    if (opts.cleanupOnDone) {
+      try {
+        await client.disconnect();
+      } catch {
+        // ignore cleanup errors
+      }
     }
   }
 }

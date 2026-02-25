@@ -12,7 +12,7 @@ export class JsonRpcClient {
     this.url = new URL(opts.mcpUrl);
     this.agentId = opts.agentId;
     this.hmacSecret = opts.hmacSecret;
-    this.timeoutMS = opts.timeoutMS ?? 5_000;
+    this.timeoutMS = opts.timeoutMS ?? 15_000;
   }
 
   async call<T>(method: string, params?: unknown): Promise<T> {

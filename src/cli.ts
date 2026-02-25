@@ -2,8 +2,8 @@ import { runScenario, type ScenarioName } from "./runner.js";
 
 function usage(): never {
   console.error(`Usage:
-  pnpm run run -- --scenario <name> [--mcp <url>] [--agent_id <id>] [--duration_sec <n>] [--obs_timeout_ms <n>] [--no_fresh]
-  pnpm run swarm -- --count <n> --duration_sec <n> [--scenario smoke_roam] [--mcp <url>] [--prefix <pfx>] [--start_stagger_ms <n>] [--obs_timeout_ms <n>]
+  pnpm run run -- --scenario <name> [--mcp <url>] [--agent_id <id>] [--duration_sec <n>] [--obs_timeout_ms <n>] [--cleanup_on_done true|false] [--no_fresh]
+  pnpm run swarm -- --count <n> --duration_sec <n> [--scenario smoke_roam] [--mcp <url>] [--prefix <pfx>] [--start_stagger_ms <n>] [--obs_timeout_ms <n>] [--cleanup_on_done true|false]
   pnpm run e2e -- --scenario <name>
 
 Scenarios: smoke_roam | workshop_pad | mine_gather | memory_kv | board_post_search | multiworld_mine_trade_govern
@@ -76,6 +76,7 @@ async function main() {
     const sessionKey = asStr(flags.agent_id, "agent_001");
     const durationSec = asInt(flags.duration_sec, 30);
     const fresh = asBool(flags.fresh, true);
+    const cleanupOnDone = asBool(flags.cleanup_on_done, true);
     const obsTimeoutMS = asInt(flags.obs_timeout_ms, 3500);
     const warmupTimeoutMS = asInt(flags.warmup_timeout_ms, Math.max(4500, obsTimeoutMS + 1000));
 
@@ -85,6 +86,7 @@ async function main() {
       scenario,
       durationSec,
       fresh,
+      cleanupOnDone,
       obsTimeoutMS,
       warmupTimeoutMS,
     });
@@ -106,6 +108,7 @@ async function main() {
     const obsTimeoutMS = asInt(flags.obs_timeout_ms, 3500);
     const warmupTimeoutMS = asInt(flags.warmup_timeout_ms, Math.max(4500, obsTimeoutMS + 1000));
     const maxObsTimeouts = asInt(flags.max_obs_timeouts, 12);
+    const cleanupOnDone = asBool(flags.cleanup_on_done, true);
 
     const tasks = Array.from({ length: count }, (_, i) => {
       const id = `${prefix}${String(i + 1).padStart(3, "0")}`;
@@ -120,6 +123,7 @@ async function main() {
             scenario,
             durationSec,
             fresh: true,
+            cleanupOnDone,
             timeoutSec: Math.max(220, durationSec + 220),
             obsTimeoutMS,
             warmupTimeoutMS,
