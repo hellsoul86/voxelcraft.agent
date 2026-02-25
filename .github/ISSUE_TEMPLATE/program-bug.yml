@@ -1,0 +1,68 @@
+name: Program Bug
+description: Defect report for VoxelCraft program tracking.
+title: "[VC-BUG] <short-title>"
+labels:
+  - program:voxelcraft
+  - type:bug
+body:
+  - type: dropdown
+    id: repo_scope
+    attributes:
+      label: Repo Scope
+      options:
+        - voxelcraft.agent
+        - voxelcraft.ai
+        - voxelcraft.web
+        - multi-repo
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - p0
+        - p1
+        - p2
+        - p3
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction Steps
+      placeholder: |
+        1. Step one
+        2. Step two
+        3. Step three
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Result
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Result
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, screenshots, traces, or links.
