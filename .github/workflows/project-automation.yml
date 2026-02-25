@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   sync_issue_to_program_project:
-    if: ${{ secrets.GH_PROJECT_TOKEN != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Add issue to project and update fields
